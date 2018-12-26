@@ -260,3 +260,16 @@ sudo /etc/init.d/apache2 restart
 - Login to Nextcloud
 Point your browser to https://<pi-hostname>/nextcloud
 
+** Configure CalDAV and CardDAV redirect
+- Redirect CalDAV and CardDAV requests
+Append the following lines to /etc/apache2/sites-enabled/nextcloud.conf
+#+BEGIN_SRC
+Redirect 301 /.well-known/carddav /nextcloud/remote.php/dav
+Redirect 301 /.well-known/caldav /nextcloud/remote.php/dav
+#+END_SRC
+
+- Restart Apache
+#+BEGIN_SRC shell
+sudo /etc/init.d/apache2 restart
+#+END_SRC
+
