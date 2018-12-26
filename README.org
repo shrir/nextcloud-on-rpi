@@ -1,0 +1,262 @@
+#+TITLE: How to install Nextcloud on Raspberry Pi
+#+OPTIONS: toc:nil, author:nil
+
+* How to install Nextcloud on Raspberry Pi
+
+** Install operating system image
+Follow these [[https://www.raspberrypi.org/documentation/installation/installing-images/linux.md][instructions]] to write an image of raspbian or raspnian-lite Stretch to the SD card.
+
+** Access Pi
+Pi terminal can be accessed either [[https://projects.raspberrypi.org/en/projects/raspberry-pi-setting-up/4][directly]] or using a [[https://learn.adafruit.com/adafruits-raspberry-pi-lesson-5-using-a-console-cable][console cable]].
+
+** Configure Pi
+- [[https://www.raspberrypi.org/documentation/configuration/raspi-config.md][Setup hostname, timezone, chnage password and enable ssh]]
+- [[https://www.raspberrypi.org/documentation/configuration/wireless/README.md][Configure networking]]
+
+** Get updates
+#+BEGIN_SRC shell
+sudo apt-get update && sudo apt-get upgrade
+#+END_SRC
+
+** Setup firewall
+- Install Uncomplicated Firewall (ufw)
+#+BEGIN_SRC shell
+sudo apt-get install ufw
+#+END_SRC
+
+- Allow access to port 80 from local subnet
+#+BEGIN_SRC shell
+sudo ufw allow from 192.168.178.0/24 to any port 80 proto tcp
+#+END_SRC
+
+- Allow access to port 443 from local subnet
+#+BEGIN_SRC shell
+sudo ufw allow from 192.168.178.0/24 to any port 80 proto tcp
+#+END_SRC
+
+- If you intent to access the Pi over ssh, allow access to port 22 from local subnet
+#+BEGIN_SRC shell
+sudo ufw allow from 192.168.178.0/24 to any port 22 proto tcp
+#+END_SRC
+
+*Note: Replace the IP with the IP of your subnet. To allow all sources, just drop the 'from' option.*
+
+** Install Apache and PHP
+
+- Install Apache
+#+BEGIN_SRC shell
+sudo apt-get install apache2
+#+END_SRC
+
+- Install PHP 
+#+BEGIN_SRC shell
+sudo apt-get install libapache2-mod-php php7.0 php7.0-xml php7.0 php7.0-cgi php7.0-cli php7.0-gd php7.0-curl php7.0-zip php7.0-mysql php7.0-mbstring wget unzip -y
+#+END_SRC
+
+- Restart Apache
+#+BEGIN_SRC shell
+sudo /etc/init.d/apache2 restart
+#+END_SRC
+
+- Add necessary modules
+#+BEGIN_SRC shell
+a2enmod rewrite
+a2enmod headers
+a2enmod env
+a2enmod dir
+a2enmod mime
+#+END_SRC
+
+** Install and configure MariaDB
+
+- Install MariaDB
+#+BEGIN_SRC shell
+sudo apt-get install mariadb-server
+#+END_SRC
+
+- Secure MariaDB
+#+BEGIN_SRC shell
+sudo mysql_secure_installation
+#+END_SRC
+
+** Create Nextcloud database
+- Log in to MariaDB
+#+BEGIN_SRC shell
+sudo mysql 
+#+END_SRC
+
+- Create database
+#+BEGIN_SRC shell
+CREATE DATABASE nextcloud;
+#+END_SRC
+
+- Create user
+#+BEGIN_SRC shell
+CREATE USER 'nextcloud'@'localhost' IDENTIFIED BY '<password>';
+#+END_SRC
+
+*Note: Replace password with a strong secret.*
+
+- Grant nextcloud user access to the nextcloud database
+#+BEGIN_SRC shell
+GRANT ALL PRIVILEGES ON nextcloud.* TO 'nextcloud'@'localhost';
+#+END_SRC
+
+- Flush privileges
+#+BEGIN_SRC shell
+FLUSH PRIVILEGES;
+#+END_SRC
+
+** Mount external drive for Nextdata data directory 
+- Create directory to mount the external drive
+#+BEGIN_SRC shell
+sudo mkdir /media/nextdata
+#+END_SRC
+
+- Change the owner of the Nextcloud data directory to Apache
+#+BEGIN_SRC shell
+sudo chown -R www-data:www-data /media/nextdata
+#+END_SRC
+
+- Connect and mount external drive(formatted as ext4) and note the UUID
+#+BEGIN_SRC shell
+sudo blkid
+#+END_SRC
+
+- Append the following line to /etc/fstab to mount the drive on boot
+#+BEGIN_SRC shell
+UUUID=<>       /media/nextdata auto    nosuid,nodev,nofail     0       0
+#+END_SRC
+
+- Apply new changes from /etc/fstab
+#+BEGIN_SRC shell
+sudo mount -a
+#+END_SRC
+
+** Install Nextcloud
+- Download Nextcloud
+#+BEGIN_SRC shell
+wget https://download.nextcloud.com/server/releases/latest.zip
+#+END_SRC
+
+- Uncompress zip
+#+BEGIN_SRC shell
+unzip latest.zip
+#+END_SRC
+
+- Move Nextcloud to Apache web root directory
+#+BEGIN_SRC shell
+sudo mv nextcloud /var/www/
+#+END_SRC
+
+- Change ownership of the Nextcloud directory
+#+BEGIN_SRC shell
+sudo chown -R www-data:www-data /var/www/nextcloud
+#+END_SRC
+
+- Create Apache virtual host for Nextcloud
+#+BEGIN_SRC shell
+sudo vim /etc/apache2/sites-available/nextcloud.conf
+#+END_SRC
+
+and add the following lines:
+#+BEGIN_SRC
+<VirtualHost *:80>
+    DocumentRoot "/var/www/nextcloud"
+    ServerName <pi-ip-address>
+</VirtualHost>
+#+END_SRC
+
+*Note: Replace <pi-hostname> with the hostname of your Pi.*
+
+- Disable default site
+#+BEGIN_SRC shell
+sudo a2dissite 000-default
+#+END_SRC
+
+- Add Nextcloud virtual host
+#+BEGIN_SRC shell
+a2ensite nextcloud
+#+END_SRC
+
+- Restart Apache
+#+BEGIN_SRC shell
+sudo /etc/init.d/apache2 restart
+#+END_SRC
+
+** Nextcloud initial setup
+Point your browser to http://<pi-ip-address>/ and complete the initial setup
+
+- Configure the data folder: /media/nextdata
+- Configure database:
+  + Database user: nextcloud
+  + Database password: <password>
+  + Database name: nextcloud
+  
+** Enable HTTPS
+- Create self-signed certicifate
+
+#+BEGIN_SRC shell
+sudo openssl req -x509 -nodes -days 1149 -newkey rsa:2048 -keyout /etc/ssl/private/apache-nextcloud.key -out /etc/ssl/certs/apache-nextcloud.crt
+#+END_SRC
+
+- Add virtual host and redirect http traffic to https
+Modify /etc/apache2/sites-enabled/nextcloud.conf to look like follows:
+
+#+BEGIN_SRC
+Alias /nextcloud "/var/www/nextcloud/"
+
+<Directory /var/www/nextcloud/>
+  Options +FollowSymlinks
+  AllowOverride All
+
+ <IfModule mod_dav.c>
+  Dav off
+ </IfModule>
+
+ SetEnv HOME /var/www/nextcloud
+ SetEnv HTTP_HOME /var/www/nextcloud
+
+</Directory>
+
+<VirtualHost *:80>
+    DocumentRoot "/var/www/nextcloud"
+    ServerName <pi-hostname>
+    Redirect permanent / https://<pi-hostname>/
+</VirtualHost>
+
+<VirtualHost *:443>
+    DocumentRoot "/var/www/nextcloud"
+    ServerName <pi-hostname>
+    <IfModule mod_headers.c>
+        Header always set Strict-Transport-Security "max-age=15768000; includeSubDomains; preload"
+    </IfModule>
+    SSLEngine on
+    SSLOptions +StrictRequire
+    SSLCertificateFile /etc/ssl/certs/apache-nextcloud.crt
+    SSLCertificateKeyFile /etc/ssl/private/apache-nextcloud.key
+</VirtualHost>
+#+END_SRC
+
+- Add hostname to trusted domains
+Add <pi-hostname> to trusted domains array in /var/www/nextcloud/config/config.php
+#+BEGIN_SRC
+...
+  'trusted_domains' => 
+  array (
+    0 => '192.168.178.42',
+    1 => '<pi-hostname>'
+  ),
+...
+#+END_SRC
+
+*Note: <pi-hostname> with the hostname of your Pi.*
+
+- Restart Apache
+#+BEGIN_SRC shell
+sudo /etc/init.d/apache2 restart
+#+END_SRC
+
+- Login to Nextcloud
+Point your browser to https://<pi-hostname>/nextcloud
+
